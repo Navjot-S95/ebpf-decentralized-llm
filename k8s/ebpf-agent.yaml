@@ -1,0 +1,84 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ebpf-agent-metrics
+  namespace: ebpf-llm
+  labels:
+    app: ebpf-agent
+spec:
+  type: NodePort
+  selector:
+    app: ebpf-agent
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      nodePort: 30090   # accessible at http://localhost:30090 in Docker Desktop
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ebpf-agent
+  namespace: ebpf-llm
+  labels:
+    app: ebpf-agent
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-agent
+  template:
+    metadata:
+      labels:
+        app: ebpf-agent
+    spec:
+      hostNetwork: true  # needed to attach eBPF to host interfaces
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet  # resolve k8s service names despite hostNetwork
+      containers:
+        - name: ebpf-agent
+          image: ebpf-llm/ebpf-agent:latest
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - NET_ADMIN
+                - SYS_PTRACE
+          ports:
+            - containerPort: 9090
+              hostPort: 9090
+          env:
+            - name: EBPF_INTERFACE
+              value: "eth0"
+            - name: NODE_ADDRS
+              value: "inference-node-a.ebpf-llm.svc.cluster.local:50051,inference-node-b.ebpf-llm.svc.cluster.local:50051"
+            - name: POLL_INTERVAL
+              value: "2s"
+            - name: METRICS_PORT
+              value: "9090"
+            - name: NODE_STATUS_PORT
+              value: "8080"
+            - name: ENABLE_REDIRECT
+              value: "true"
+            - name: PRIORITY_DSCP
+              value: "46"
+            - name: REDIRECT_THRESH
+              value: "5"
+          volumeMounts:
+            - name: bpf-fs
+              mountPath: /sys/fs/bpf
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+      volumes:
+        - name: bpf-fs
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+      tolerations:
+        - operator: Exists  # run on all nodes

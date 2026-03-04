@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package inference;
+
+option go_package = "ebpf-decentralized-llm/proto";
+
+// Service running on each inference node.
+// Each node holds a contiguous slice of model layers.
+service InferenceNode {
+  // Run a full inference request (entry point – first node in the pipeline).
+  rpc Infer(InferRequest) returns (InferResponse);
+
+  // Forward intermediate activations to the next pipeline stage.
+  rpc ForwardActivations(ActivationData) returns (ActivationResponse);
+
+  // Health / load reporting consumed by the eBPF agent.
+  rpc GetNodeStatus(Empty) returns (NodeStatus);
+}
+
+message InferRequest {
+  string request_id = 1;
+  string prompt = 2;
+  int32  max_tokens = 3;
+}
+
+message InferResponse {
+  string request_id = 1;
+  string generated_text = 2;
+  float  total_latency_ms = 3;
+  // Per-stage latency breakdown.
+  repeated StageLatency stage_latencies = 4;
+}
+
+message StageLatency {
+  int32 stage_id = 1;
+  string node_id = 2;
+  float  latency_ms = 3;
+}
+
+message ActivationData {
+  string request_id = 1;
+  int32  source_stage = 2;
+  int32  target_stage = 3;
+  // Serialised tensor (numpy tobytes).
+  bytes  tensor_data = 4;
+  // Shape needed to reconstruct the tensor.
+  repeated int32 tensor_shape = 5;
+  // Original prompt (carried through for final decoding).
+  string prompt = 6;
+  int32  max_tokens = 7;
+}
+
+message ActivationResponse {
+  string request_id = 1;
+  bool   accepted = 2;
+  // If this was the last stage, the final text is returned here.
+  string generated_text = 3;
+  float  latency_ms = 4;
+}
+
+message NodeStatus {
+  string node_id = 1;
+  int32  stage_id = 2;
+  int32  layer_start = 3;
+  int32  layer_end = 4;
+  float  cpu_percent = 5;
+  float  memory_percent = 6;
+  int32  queue_depth = 7;
+  float  avg_latency_ms = 8;
+  int64  requests_processed = 9;
+}
+
+message Empty {}

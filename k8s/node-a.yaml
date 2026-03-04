@@ -1,0 +1,65 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-node-a
+  namespace: ebpf-llm
+  labels:
+    app: inference-node
+    stage: "0"
+spec:
+  selector:
+    app: inference-node
+    stage: "0"
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+  clusterIP: None  # headless — direct pod-to-pod
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-node-a
+  namespace: ebpf-llm
+  labels:
+    app: inference-node
+    stage: "0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inference-node
+      stage: "0"
+  template:
+    metadata:
+      labels:
+        app: inference-node
+        stage: "0"
+    spec:
+      containers:
+        - name: inference
+          image: ebpf-llm/inference:latest
+          imagePullPolicy: Never  # use local Docker image
+          ports:
+            - containerPort: 50051
+          env:
+            - name: NODE_ID
+              value: "node-a"
+            - name: STAGE_ID
+              value: "0"
+            - name: TOTAL_STAGES
+              value: "2"
+            - name: NEXT_NODE_ADDR
+              value: "inference-node-b:50051"
+            - name: GRPC_PORT
+              value: "50051"
+            - name: MODEL_NAME
+              value: "gpt2"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1500Mi"
+              cpu: "1"
