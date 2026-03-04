@@ -108,6 +108,52 @@ if (target) {
 }
 ```
 
+## Live Logs
+
+Real output captured from a running deployment on Docker Desktop Kubernetes.
+
+### Pods Running
+```
+$ kubectl get pods -n ebpf-llm -o wide
+
+NAME                                READY   STATUS    RESTARTS   AGE    IP
+ebpf-agent-fpjwn                    1/1     Running   0          129m   <host-ip>
+inference-node-a-55bb4d8c8d-drhmg   1/1     Running   0          129m   <pod-ip-a>
+inference-node-b-5fb4d6c55-x7mnh    1/1     Running   0          129m   <pod-ip-b>
+```
+
+### eBPF Agent — Polling Every 2s
+```
+$ kubectl logs -n ebpf-llm daemonset/ebpf-agent --tail=10
+
+2026/03/04 19:31:30 node inference-node-a.ebpf-llm.svc.cluster.local:50051: stage=0 queue=0 cpu=0% lat=9896.8ms
+2026/03/04 19:31:30 node inference-node-b.ebpf-llm.svc.cluster.local:50051: stage=1 queue=0 cpu=0% lat=3109.4ms
+2026/03/04 19:31:32 node inference-node-a.ebpf-llm.svc.cluster.local:50051: stage=0 queue=0 cpu=0% lat=9896.8ms
+2026/03/04 19:31:32 node inference-node-b.ebpf-llm.svc.cluster.local:50051: stage=1 queue=0 cpu=0% lat=3109.4ms
+```
+Both nodes discovered and tracked. Stage 0 = node-a (layers 0-5), Stage 1 = node-b (layers 6-11).
+
+### BPF Maps — Node State via Metrics API
+```
+$ curl http://localhost:30090/nodes
+
+[
+  {"node_id":0,"stage_id":0,"queue_depth":0,"cpu":0,"mem":18,"avg_lat_ns":9896794112,"ip":"0x<pod-ip-a-hex>"},
+  {"node_id":1,"stage_id":1,"queue_depth":0,"cpu":0,"mem":18,"avg_lat_ns":3109362176,"ip":"0x<pod-ip-b-hex>"}
+]
+```
+IPs stored as hex in BPF maps, read back by the Go agent and exposed via HTTP. Written directly from kernel space — no userspace routing table.
+
+### Live Inference — Split Across Pods
+```
+$ kubectl -n ebpf-llm exec deployment/inference-node-a -- python3 -c "
+  stub.Infer(prompt='The future of AI is', max_tokens=1)
+"
+
+output:  uncertain
+```
+Prompt entered node-a (layers 0-5) → activations transferred via gRPC to node-b (layers 6-11) → decoded and returned. Full pipeline confirmed working end-to-end.
+
 ## What We Proved (Live Results)
 
 This POC was fully deployed and tested on Docker Desktop Kubernetes. Here's what was verified end-to-end:
